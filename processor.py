@@ -213,7 +213,10 @@ class StoryProcessor:
             color = (18, 76, 84) if line['is_header'] else text_color
                 
             line_width = current_font.getlength(line['text'])
-            x_pos = (self.story_size[0] - line_width) / 2
+            
+            # محاسبه مختصات برای راست‌چین کردن استاندارد متن فارسی
+            right_margin = (self.story_size[0] - current_max_width) / 2
+            x_pos = self.story_size[0] - right_margin - line_width
             
             draw.text((x_pos, current_y), line['text'], font=current_font, fill=color)
             
