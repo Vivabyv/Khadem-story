@@ -19,7 +19,7 @@ class StoryProcessor:
         self.text_only_max_width = 720 
         self.marble_usable_start_y = 360 
         self.marble_usable_end_y = 1580  
-        self.text_only_color = (30, 30, 30) # رنگ خاکستری تیره مایل به مشکی برای خوانایی بهتر
+        self.text_only_color = (30, 30, 30)
         
         # --- تنظیمات قالب ۲: متن و عکس (کرم‌رنگ) ---
         self.with_img_max_width = 720 
@@ -30,14 +30,12 @@ class StoryProcessor:
         self.with_img_color = (30, 30, 30)
 
     def _prepare_persian_text(self, text, body_font, header_font, max_width):
-        """پردازش پیشرفته پاراگراف به پاراگراف و جداسازی تیتر"""
         lines = []
-        # جدا کردن متن بر اساس Enter کاربر
         paragraphs = text.replace('\r', '').split('\n')
         
         for i, paragraph in enumerate(paragraphs):
             paragraph = paragraph.strip()
-            is_header = (i == 0) # خط اول همیشه به عنوان تیتر در نظر گرفته می‌شود
+            is_header = (i == 0)
             current_font = header_font if is_header else body_font
             
             if not paragraph:
@@ -67,82 +65,45 @@ class StoryProcessor:
                 reshaped_final = arabic_reshaper.reshape(' '.join(current_line))
                 lines.append({'text': get_display(reshaped_final), 'is_header': is_header, 'is_empty': False})
                 
-            # علامت‌گذاری خط آخر هر پاراگراف برای ایجاد فاصله بین اخبار
             if lines and not lines[-1].get('is_empty'):
                 lines[-1]['is_paragraph_end'] = True
                 
         return lines
 
     def _get_dynamic_font(self, text, start_font_size, max_width, max_height):
-        """محاسبه هوشمند سایز فونت با الگوریتم جستجوی دودویی (سریع‌تر)"""
-        low = 20
-        high = start_font_size
+        font_size = start_font_size
         
-        best_font_size = 20
-        best_header_size = 35
-        best_body_font = None
-        best_header_font = None
-        best_line_spacing = 0
-        best_paragraph_spacing = 0
-        best_lines = []
-
-        while low <= high:
-            mid_font_size = (low + high) // 2
-            header_font_size = mid_font_size + 15
+        while font_size > 20: 
+            header_font_size = font_size + 15
             
             try:
-                body_font = ImageFont.truetype(self.font_path, mid_font_size)
+                body_font = ImageFont.truetype(self.font_path, font_size)
                 header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
                 
-            line_spacing = int(mid_font_size * 0.4)
-            paragraph_spacing = int(mid_font_size * 0.8)
+            line_spacing = int(font_size * 0.4) 
+            paragraph_spacing = int(font_size * 0.8)
             
-            # پردازش متن با سایز فونت وسط
             lines = self._prepare_persian_text(text, body_font, header_font, max_width)
             
             total_height = 0
             for line in lines:
                 if line.get('is_empty'):
-                    total_height += mid_font_size + line_spacing
+                    total_height += font_size + line_spacing
                 else:
-                    current_size = header_font_size if line['is_header'] else mid_font_size
+                    current_size = header_font_size if line['is_header'] else font_size
                     total_height += current_size + line_spacing
                     if line.get('is_paragraph_end'):
                         total_height += paragraph_spacing
             
             if total_height <= max_height:
-                # این سایز در کادر جا می‌شود، آن را ذخیره می‌کنیم اما دنبال سایز بزرگتر هم می‌گردیم
-                best_font_size = mid_font_size
-                best_header_size = header_font_size
-                best_body_font = body_font
-                best_header_font = header_font
-                best_line_spacing = line_spacing
-                best_paragraph_spacing = paragraph_spacing
-                best_lines = lines
+                break
                 
-                low = mid_font_size + 1 
-            else:
-                # این سایز برای کادر خیلی بزرگ است، نیمه پایین‌تر را می‌گردیم
-                high = mid_font_size - 1
-                
-        # در صورتی که متن آنقدر طولانی باشد که حتی سایز 20 هم جا نشود (فال‌بک ایمن)
-        if best_body_font is None:
-            best_font_size = 20
-            best_header_size = 35
-            try:
-                best_body_font = ImageFont.truetype(self.font_path, 20)
-                best_header_font = ImageFont.truetype(self.font_path, 35)
-            except IOError:
-                best_body_font = ImageFont.load_default()
-                best_header_font = ImageFont.load_default()
-            best_line_spacing = int(20 * 0.4)
-            best_paragraph_spacing = int(20 * 0.8)
-            best_lines = self._prepare_persian_text(text, best_body_font, best_header_font, max_width)
-
-        return best_body_font, best_header_font, best_font_size, best_header_size, best_line_spacing, best_paragraph_spacing, best_lines
+            font_size -= 1 
+            
+        return body_font, header_font, font_size, header_font_size, line_spacing, paragraph_spacing, lines
 
     def generate_story(self, mode, text, image_stream=None):
         selected_template = self.template_text_path if mode == 'text_only' else self.template_image_path
@@ -159,7 +120,6 @@ class StoryProcessor:
                 text, start_font_size=55, max_width=current_max_width, max_height=usable_height
             )
             
-            # محاسبه دقیق ارتفاع برای وسط‌چین کردن عمودی
             total_text_height = 0
             for line in lines:
                 if line.get('is_empty'):
@@ -200,7 +160,6 @@ class StoryProcessor:
             offset = max(0, (usable_height - total_text_height) // 2)
             current_y = self.with_img_start_y + offset
 
-        # --- رندر نهایی روی عکس ---
         for line in lines:
             if line.get('is_empty'):
                 current_y += final_size + line_spacing
@@ -209,20 +168,15 @@ class StoryProcessor:
             current_font = header_font if line['is_header'] else body_font
             current_size = header_size if line['is_header'] else final_size
             
-            # رنگ سبز-آبی لوگو فقط برای تیتر
             color = (18, 76, 84) if line['is_header'] else text_color
                 
             line_width = current_font.getlength(line['text'])
-            
-            # محاسبه مختصات برای راست‌چین کردن استاندارد متن فارسی
-            right_margin = (self.story_size[0] - current_max_width) / 2
-            x_pos = self.story_size[0] - right_margin - line_width
+            x_pos = (self.story_size[0] - line_width) / 2
             
             draw.text((x_pos, current_y), line['text'], font=current_font, fill=color)
             
             current_y += current_size + line_spacing
             
-            # اضافه کردن فاصله تنفس (Padding) بعد از تمام شدن هر خبر
             if line.get('is_paragraph_end'):
                 current_y += para_spacing
 
