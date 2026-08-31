@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>پنل توليد استوري</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://v1.fontapi.ir/css/Vazir');
+        body { font-family: 'Vazir', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+        <h2 class="text-3xl font-bold mb-8 text-gray-800 text-center border-b pb-4">پنل ساخت استوري اختصاصي</h2>
+        
+        <!-- نمايش خطاها -->
+        {% if error %}
+        <div class="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm font-medium">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="POST" enctype="multipart/form-data" class="space-y-6">
+            <!-- انتخاب نوع قالب -->
+            <div>
+                <label class="block mb-2 font-semibold text-gray-700">نوع قالب استوري:</label>
+                <select name="mode" id="modeSelect" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none" onchange="toggleImageInput()">
+                    <option value="text_only">فقط متن (استفاده از قالب متني)</option>
+                    <option value="text_and_image">متن + عکس (استفاده از قالب تصويري)</option>
+                </select>
+            </div>
+
+            <!-- آپلود عکس -->
+            <div id="imageInputBox" class="hidden transition-all">
+                <label class="block mb-2 font-semibold text-gray-700">انتخاب تصوير:</label>
+                <input type="file" name="image" accept="image/png, image/jpeg" class="w-full p-2 border border-gray-300 rounded-xl bg-gray-50 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                <p class="text-xs text-gray-500 mt-2">تصوير شما به صورت هوشمند کراپ و در جايگاه تعبيه شده قرار مي‌گيرد.</p>
+            </div>
+
+            <!-- فيلد متن -->
+            <div>
+                <label class="block mb-2 font-semibold text-gray-700">متن استوري:</label>
+                <textarea name="text" rows="5" class="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none resize-none" required placeholder="متن مورد نظر براي درج در استوري را اينجا وارد کنيد..."></textarea>
+            </div>
+
+            <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all text-lg shadow-lg">
+                توليد و دريافت استوري
+            </button>
+        </form>
+
+        <!-- نمايش خروجي -->
+        {% if output_image %}
+        <div class="mt-10 text-center border-t pt-8">
+            <div class="inline-flex items-center justify-center space-x-2 space-x-reverse mb-6 text-green-600">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                <h3 class="text-xl font-bold">خروجي شما آماده است</h3>
+            </div>
+            <img src="{{ output_image }}" alt="Story Output" class="mx-auto rounded-xl shadow-2xl max-w-sm border border-gray-200">
+            <a href="{{ output_image }}" download="story_output.jpg" class="inline-flex items-center justify-center px-6 py-3 mt-6 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors shadow-md">
+                <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                دانلود با کيفيت اصلي
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function toggleImageInput() {
+            const mode = document.getElementById('modeSelect').value;
+            const imgBox = document.getElementById('imageInputBox');
+            if (mode === 'text_and_image') {
+                imgBox.classList.remove('hidden');
+            } else {
+                imgBox.classList.add('hidden');
+            }
+        }
+        // اجراي تابع هنگام لود صفحه براي تنظيم صحيح فرم
+        toggleImageInput();
+    </script>
+</body>
+</html>
