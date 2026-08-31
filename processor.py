@@ -74,41 +74,75 @@ class StoryProcessor:
         return lines
 
     def _get_dynamic_font(self, text, start_font_size, max_width, max_height):
-        """محاسبه هوشمند سایز فونت با در نظر گرفتن تیتر و فاصله پاراگراف‌ها"""
-        font_size = start_font_size
+        """محاسبه هوشمند سایز فونت با الگوریتم جستجوی دودویی (سریع‌تر)"""
+        low = 20
+        high = start_font_size
         
-        while font_size > 20: 
-            header_font_size = font_size + 15 # تیتر همیشه 15 سایز بزرگتر است
+        best_font_size = 20
+        best_header_size = 35
+        best_body_font = None
+        best_header_font = None
+        best_line_spacing = 0
+        best_paragraph_spacing = 0
+        best_lines = []
+
+        while low <= high:
+            mid_font_size = (low + high) // 2
+            header_font_size = mid_font_size + 15
             
             try:
-                body_font = ImageFont.truetype(self.font_path, font_size)
+                body_font = ImageFont.truetype(self.font_path, mid_font_size)
                 header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
                 
-            line_spacing = int(font_size * 0.4) 
-            paragraph_spacing = int(font_size * 0.8) # فاصله مضاعف بین هر خبر
+            line_spacing = int(mid_font_size * 0.4)
+            paragraph_spacing = int(mid_font_size * 0.8)
             
+            # پردازش متن با سایز فونت وسط
             lines = self._prepare_persian_text(text, body_font, header_font, max_width)
             
-            # محاسبه ارتفاع کل بلوک متن
             total_height = 0
             for line in lines:
                 if line.get('is_empty'):
-                    total_height += font_size + line_spacing
+                    total_height += mid_font_size + line_spacing
                 else:
-                    current_size = header_font_size if line['is_header'] else font_size
+                    current_size = header_font_size if line['is_header'] else mid_font_size
                     total_height += current_size + line_spacing
                     if line.get('is_paragraph_end'):
                         total_height += paragraph_spacing
             
             if total_height <= max_height:
-                break
+                # این سایز در کادر جا می‌شود، آن را ذخیره می‌کنیم اما دنبال سایز بزرگتر هم می‌گردیم
+                best_font_size = mid_font_size
+                best_header_size = header_font_size
+                best_body_font = body_font
+                best_header_font = header_font
+                best_line_spacing = line_spacing
+                best_paragraph_spacing = paragraph_spacing
+                best_lines = lines
                 
-            font_size -= 1 
-            
-        return body_font, header_font, font_size, header_font_size, line_spacing, paragraph_spacing, lines
+                low = mid_font_size + 1 
+            else:
+                # این سایز برای کادر خیلی بزرگ است، نیمه پایین‌تر را می‌گردیم
+                high = mid_font_size - 1
+                
+        # در صورتی که متن آنقدر طولانی باشد که حتی سایز 20 هم جا نشود (فال‌بک ایمن)
+        if best_body_font is None:
+            best_font_size = 20
+            best_header_size = 35
+            try:
+                best_body_font = ImageFont.truetype(self.font_path, 20)
+                best_header_font = ImageFont.truetype(self.font_path, 35)
+            except IOError:
+                best_body_font = ImageFont.load_default()
+                best_header_font = ImageFont.load_default()
+            best_line_spacing = int(20 * 0.4)
+            best_paragraph_spacing = int(20 * 0.8)
+            best_lines = self._prepare_persian_text(text, best_body_font, best_header_font, max_width)
+
+        return best_body_font, best_header_font, best_font_size, best_header_size, best_line_spacing, best_paragraph_spacing, best_lines
 
     def generate_story(self, mode, text, image_stream=None):
         selected_template = self.template_text_path if mode == 'text_only' else self.template_image_path
