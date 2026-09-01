@@ -4,13 +4,12 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# پیکربندی اختصاصی برای زبان فارسی
-reshaper_config = {
-    'delete_harakat': False,
-    'support_ligatures': True,
-    'use_unshaped_instead_of_isolated': True,
-}
-reshaper = arabic_reshaper.ArabicReshaper(reshaper_config)
+# سیستم هوشمند برای تشخیص وجود موتور پردازش متن خاورمیانه در سیستم‌عامل
+try:
+    from PIL import features
+    HAS_RAQM = features.check('raqm')
+except ImportError:
+    HAS_RAQM = False
 
 class StoryProcessor:
     def __init__(self, template_text_path, template_image_path, font_path):
@@ -57,26 +56,23 @@ class StoryProcessor:
                 current_line.append(word)
                 test_line = ' '.join(current_line)
                 
-                # تبدیل و راست‌چین کردن
-                reshaped = reshaper.reshape(test_line)
-                bidi_text = get_display(reshaped)
-                
-                width = current_font.getlength(bidi_text)
+                # محاسبه هوشمند طول خط بر اساس سرور یا لوکال
+                if HAS_RAQM:
+                    width = current_font.getlength(test_line, direction='rtl')
+                else:
+                    width = current_font.getlength(get_display(arabic_reshaper.reshape(test_line)))
                         
                 if width > max_width:
                     if len(current_line) == 1:
-                        reshaped = reshaper.reshape(current_line[0])
-                        lines.append({'text': get_display(reshaped), 'is_header': is_header, 'is_empty': False})
+                        lines.append({'text': current_line[0], 'is_header': is_header, 'is_empty': False})
                         current_line = []
                     else:
                         current_line.pop()
-                        reshaped_final = reshaper.reshape(' '.join(current_line))
-                        lines.append({'text': get_display(reshaped_final), 'is_header': is_header, 'is_empty': False})
+                        lines.append({'text': ' '.join(current_line), 'is_header': is_header, 'is_empty': False})
                         current_line = [word]
                         
             if current_line:
-                reshaped_final = reshaper.reshape(' '.join(current_line))
-                lines.append({'text': get_display(reshaped_final), 'is_header': is_header, 'is_empty': False})
+                lines.append({'text': ' '.join(current_line), 'is_header': is_header, 'is_empty': False})
                 
             if lines and not lines[-1].get('is_empty'):
                 lines[-1]['is_paragraph_end'] = True
@@ -84,6 +80,7 @@ class StoryProcessor:
         return lines
 
     def _get_dynamic_font(self, text, start_font_size, max_width, max_height):
+        # الگوریتم جستجوی دودویی برای جلوگیری از تایم‌اوت در متون طولانی
         low = 20
         high = start_font_size
         
@@ -100,13 +97,8 @@ class StoryProcessor:
             header_font_size = mid_font_size + 15
             
             try:
-                # خنثی کردن موتور لینوکس با LAYOUT_BASIC
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size)
+                body_font = ImageFont.truetype(self.font_path, mid_font_size)
+                header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
@@ -143,12 +135,8 @@ class StoryProcessor:
             best_font_size = 20
             best_header_size = 35
             try:
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    best_body_font = ImageFont.truetype(self.font_path, 20, layout_engine=ImageFont.LAYOUT_BASIC)
-                    best_header_font = ImageFont.truetype(self.font_path, 35, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    best_body_font = ImageFont.truetype(self.font_path, 20)
-                    best_header_font = ImageFont.truetype(self.font_path, 35)
+                best_body_font = ImageFont.truetype(self.font_path, 20)
+                best_header_font = ImageFont.truetype(self.font_path, 35)
             except IOError:
                 best_body_font = ImageFont.load_default()
                 best_header_font = ImageFont.load_default()
@@ -213,6 +201,7 @@ class StoryProcessor:
             offset = max(0, (usable_height - total_text_height) // 2)
             current_y = self.with_img_start_y + offset
 
+        # --- رندر نهایی روی عکس ---
         for line in lines:
             if line.get('is_empty'):
                 current_y += final_size + line_spacing
@@ -220,16 +209,20 @@ class StoryProcessor:
                 
             current_font = header_font if line['is_header'] else body_font
             current_size = header_size if line['is_header'] else final_size
-            
             color = (18, 76, 84) if line['is_header'] else text_color
-                
-            line_width = current_font.getlength(line['text'])
             
-            right_margin = (self.story_size[0] - current_max_width) / 2
-            x_pos = self.story_size[0] - right_margin - line_width
-            
-            # رسم متن نهایی کاملاً ساده
-            draw.text((x_pos, current_y), line['text'], font=current_font, fill=color)
+            # تصمیم‌گیری هوشمند برای رسم متن (بر اساس محیط لینوکس یا ویندوز)
+            if HAS_RAQM:
+                line_width = current_font.getlength(line['text'], direction='rtl')
+                right_margin = (self.story_size[0] - current_max_width) / 2
+                x_pos = self.story_size[0] - right_margin - line_width
+                draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
+            else:
+                shaped_text = get_display(arabic_reshaper.reshape(line['text']))
+                line_width = current_font.getlength(shaped_text)
+                right_margin = (self.story_size[0] - current_max_width) / 2
+                x_pos = self.story_size[0] - right_margin - line_width
+                draw.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
             
             current_y += current_size + line_spacing
             
