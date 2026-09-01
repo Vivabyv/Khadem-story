@@ -77,8 +77,13 @@ class StoryProcessor:
             header_font_size = font_size + 15
             
             try:
-                body_font = ImageFont.truetype(self.font_path, font_size)
-                header_font = ImageFont.truetype(self.font_path, header_font_size)
+                # حل مشکل رندر لینوکس: غیرفعال‌سازی موتور متنی خودکار Pillow برای جلوگیری از تداخل با arabic_reshaper
+                if hasattr(ImageFont, 'LAYOUT_BASIC'):
+                    body_font = ImageFont.truetype(self.font_path, font_size, layout_engine=ImageFont.LAYOUT_BASIC)
+                    header_font = ImageFont.truetype(self.font_path, header_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
+                else:
+                    body_font = ImageFont.truetype(self.font_path, font_size)
+                    header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
