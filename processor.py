@@ -29,11 +29,12 @@ class StoryProcessor:
         self.text_only_color = (30, 30, 30)
         
         # --- تنظیمات قالب ۲: متن و عکس (کرم‌رنگ) ---
+        # ابعاد و مختصات کالیبره شده برای جلوگیری از بیرون‌زدگی
         self.with_img_max_width = 720 
-        self.image_box_size = (800, 600) 
-        self.image_box_position = (140, 430) 
-        self.with_img_start_y = 1060 
-        self.with_img_end_y = 1440   
+        self.image_box_size = (760, 500) # سایز عکس استانداردتر و جمع‌وجورتر شد
+        self.image_box_position = (160, 380) # تنظیم دقیق برای قرارگیری بین نقل‌قول‌ها
+        self.with_img_start_y = 960 # نقطه شروع متن به پایین منتقل شد تا با عکس برخورد نکند
+        self.with_img_end_y = 1550   
         self.with_img_color = (30, 30, 30)
 
     def _prepare_persian_text(self, text, body_font, header_font, max_width):
@@ -103,8 +104,9 @@ class StoryProcessor:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
                 
-            line_spacing = int(mid_font_size * 0.4)
-            paragraph_spacing = int(mid_font_size * 0.8)
+            # افزایش فاصله خطوط برای جلوگیری از رفتن نوشته‌ها توی هم
+            line_spacing = int(mid_font_size * 0.65) 
+            paragraph_spacing = int(mid_font_size * 1.1)
             
             lines = self._prepare_persian_text(text, body_font, header_font, max_width)
             
@@ -140,8 +142,10 @@ class StoryProcessor:
             except IOError:
                 best_body_font = ImageFont.load_default()
                 best_header_font = ImageFont.load_default()
-            best_line_spacing = int(20 * 0.4)
-            best_paragraph_spacing = int(20 * 0.8)
+            
+            # تنظیم فاصله‌ها برای حالت پشتیبان
+            best_line_spacing = int(20 * 0.65)
+            best_paragraph_spacing = int(20 * 1.1)
             best_lines = self._prepare_persian_text(text, best_body_font, best_header_font, max_width)
 
         return best_body_font, best_header_font, best_font_size, best_header_size, best_line_spacing, best_paragraph_spacing, best_lines
@@ -180,9 +184,11 @@ class StoryProcessor:
             usable_height = self.with_img_end_y - self.with_img_start_y
             
             if image_stream:
-                user_img = Image.open(image_stream).convert("RGBA")
+                # تبدیل عکس به RGB استاندارد برای جلوگیری از باگ‌های ادغام پیکسل
+                user_img = Image.open(image_stream).convert("RGB")
                 user_img = ImageOps.fit(user_img, self.image_box_size, Image.Resampling.LANCZOS)
-                base_img.paste(user_img, self.image_box_position, user_img)
+                # پارامتر سوم (ماسک) حذف شد تا عکس کاملاً فیکس و تمیز بنشیند
+                base_img.paste(user_img, self.image_box_position)
                 
             body_font, header_font, final_size, header_size, line_spacing, para_spacing, lines = self._get_dynamic_font(
                 text, start_font_size=45, max_width=current_max_width, max_height=usable_height
