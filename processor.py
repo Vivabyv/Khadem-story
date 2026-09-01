@@ -48,13 +48,28 @@ class StoryProcessor:
             for word in words:
                 current_line.append(word)
                 test_line = ' '.join(current_line)
+                
+                # --- حل قطعی مشکل برعکس شدن متن در لینوکس ---
+                # مرحله 1: از شکل دهنده عربی استفاده می کنیم تا حروف به هم بچسبند
                 reshaped = arabic_reshaper.reshape(test_line)
+                # مرحله 2: از bidi استفاده می کنیم تا راست چین شود
                 bidi_text = get_display(reshaped)
                 
-                # پارامتر direction="ltr" برای جلوگیری از تداخل لینوکس اضافه شد
-                if current_font.getlength(bidi_text, direction="ltr") > max_width:
+                # --- ترفند کلیدی: خنثی کردن موتور لینوکس ---
+                # طول متن را بدون دخالت موتور bidi داخلی pillow حساب می کنیم
+                width = current_font.getlength(bidi_text)
+                if hasattr(current_font, "getbbox"):
+                    # pillow جدید
+                    try:
+                        width = current_font.getlength(bidi_text, direction="rtl")
+                    except:
+                        pass
+                        
+                if width > max_width:
                     if len(current_line) == 1:
-                        lines.append({'text': bidi_text, 'is_header': is_header, 'is_empty': False})
+                        # کلمه از خط بزرگتر است
+                        reshaped = arabic_reshaper.reshape(current_line[0])
+                        lines.append({'text': get_display(reshaped), 'is_header': is_header, 'is_empty': False})
                         current_line = []
                     else:
                         current_line.pop()
@@ -72,70 +87,45 @@ class StoryProcessor:
         return lines
 
     def _get_dynamic_font(self, text, start_font_size, max_width, max_height):
-        low = 20
-        high = start_font_size
+        font_size = start_font_size
         
-        best_font_size = 20
-        best_header_size = 35
-        best_body_font = None
-        best_header_font = None
-        best_line_spacing = 0
-        best_paragraph_spacing = 0
-        best_lines = []
-
-        while low <= high:
-            mid_font_size = (low + high) // 2
-            header_font_size = mid_font_size + 15
+        while font_size > 20: 
+            header_font_size = font_size + 15
             
             try:
-                body_font = ImageFont.truetype(self.font_path, mid_font_size)
-                header_font = ImageFont.truetype(self.font_path, header_font_size)
+                # سعی می کنیم قابلیت bidi داخلی pillow را خاموش کنیم (در لینوکس)
+                # تا فقط bidi خود ما اعمال شود و کلمات برعکس نشوند
+                try:
+                    body_font = ImageFont.truetype(self.font_path, font_size, layout_engine=ImageFont.LAYOUT_RAQM)
+                    header_font = ImageFont.truetype(self.font_path, header_font_size, layout_engine=ImageFont.LAYOUT_RAQM)
+                except:
+                    body_font = ImageFont.truetype(self.font_path, font_size)
+                    header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
                 
-            line_spacing = int(mid_font_size * 0.4)
-            paragraph_spacing = int(mid_font_size * 0.8)
+            line_spacing = int(font_size * 0.4) 
+            paragraph_spacing = int(font_size * 0.8)
             
             lines = self._prepare_persian_text(text, body_font, header_font, max_width)
             
             total_height = 0
             for line in lines:
                 if line.get('is_empty'):
-                    total_height += mid_font_size + line_spacing
+                    total_height += font_size + line_spacing
                 else:
-                    current_size = header_font_size if line['is_header'] else mid_font_size
+                    current_size = header_font_size if line['is_header'] else font_size
                     total_height += current_size + line_spacing
                     if line.get('is_paragraph_end'):
                         total_height += paragraph_spacing
             
             if total_height <= max_height:
-                best_font_size = mid_font_size
-                best_header_size = header_font_size
-                best_body_font = body_font
-                best_header_font = header_font
-                best_line_spacing = line_spacing
-                best_paragraph_spacing = paragraph_spacing
-                best_lines = lines
+                break
                 
-                low = mid_font_size + 1 
-            else:
-                high = mid_font_size - 1
-                
-        if best_body_font is None:
-            best_font_size = 20
-            best_header_size = 35
-            try:
-                best_body_font = ImageFont.truetype(self.font_path, 20)
-                best_header_font = ImageFont.truetype(self.font_path, 35)
-            except IOError:
-                best_body_font = ImageFont.load_default()
-                best_header_font = ImageFont.load_default()
-            best_line_spacing = int(20 * 0.4)
-            best_paragraph_spacing = int(20 * 0.8)
-            best_lines = self._prepare_persian_text(text, best_body_font, best_header_font, max_width)
-
-        return best_body_font, best_header_font, best_font_size, best_header_size, best_line_spacing, best_paragraph_spacing, best_lines
+            font_size -= 2 # سریعتر کوچک شود 
+            
+        return body_font, header_font, font_size, header_font_size, line_spacing, paragraph_spacing, lines
 
     def generate_story(self, mode, text, image_stream=None):
         selected_template = self.template_text_path if mode == 'text_only' else self.template_image_path
@@ -202,13 +192,23 @@ class StoryProcessor:
             
             color = (18, 76, 84) if line['is_header'] else text_color
                 
-            # پارامتر direction="ltr" اضافه شد تا موتور لینوکس متن را به هم نریزد
-            line_width = current_font.getlength(line['text'], direction="ltr")
+            # گرفتن طول خط به شکل امن 
+            try:
+                line_width = current_font.getlength(line['text'], direction="rtl")
+            except:
+                line_width = current_font.getlength(line['text'])
+                
+            # راست چین کردن
             right_margin = (self.story_size[0] - current_max_width) / 2
             x_pos = self.story_size[0] - right_margin - line_width
             
-            # پارامتر direction="ltr" در زمان نقاشی متن اضافه شد (کلید حل مشکل)
-            draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction="ltr")
+            # --- رسم نهایی ---
+            # اگر رندر لینوکس متن را دوباره برعکس می کند، ما باید direction را rtl تنظیم کنیم 
+            # تا بیدی خود پایتون خاموش شود و متن bidi شده ما درست نمایش داده شود
+            try:
+                draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction="rtl")
+            except:
+                draw.text((x_pos, current_y), line['text'], font=current_font, fill=color)
             
             current_y += current_size + line_spacing
             
