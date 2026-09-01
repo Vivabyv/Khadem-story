@@ -51,7 +51,8 @@ class StoryProcessor:
                 reshaped = arabic_reshaper.reshape(test_line)
                 bidi_text = get_display(reshaped)
                 
-                if current_font.getlength(bidi_text) > max_width:
+                # پارامتر direction="ltr" برای جلوگیری از تداخل لینوکس اضافه شد
+                if current_font.getlength(bidi_text, direction="ltr") > max_width:
                     if len(current_line) == 1:
                         lines.append({'text': bidi_text, 'is_header': is_header, 'is_empty': False})
                         current_line = []
@@ -87,7 +88,6 @@ class StoryProcessor:
             header_font_size = mid_font_size + 15
             
             try:
-                # حذف کد مخرب مرحله قبل تا حروف فارسی متصل و سالم بمانند
                 body_font = ImageFont.truetype(self.font_path, mid_font_size)
                 header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
@@ -202,13 +202,13 @@ class StoryProcessor:
             
             color = (18, 76, 84) if line['is_header'] else text_color
                 
-            line_width = current_font.getlength(line['text'])
-            
-            # فرمول دقیق برای راست‌چین کردن حاشیه متون فارسی
+            # پارامتر direction="ltr" اضافه شد تا موتور لینوکس متن را به هم نریزد
+            line_width = current_font.getlength(line['text'], direction="ltr")
             right_margin = (self.story_size[0] - current_max_width) / 2
             x_pos = self.story_size[0] - right_margin - line_width
             
-            draw.text((x_pos, current_y), line['text'], font=current_font, fill=color)
+            # پارامتر direction="ltr" در زمان نقاشی متن اضافه شد (کلید حل مشکل)
+            draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction="ltr")
             
             current_y += current_size + line_spacing
             
