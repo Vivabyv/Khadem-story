@@ -5,8 +5,21 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from pilmoji import Pilmoji 
 
-# غیرفعال‌سازی اجباری موتور لینوکس برای جلوگیری از تداخل مختصات با ایموجی‌ها
-HAS_RAQM = False
+# تشخیص هوشمند موتور رندر (Raqm برای چسبندگی بی‌نقص فونت‌های فارسی در Render حیاتی است)
+try:
+    from PIL import features
+    HAS_RAQM = features.check('raqm')
+except ImportError:
+    HAS_RAQM = False
+
+# پیکربندی اختصاصی برای فونت‌های فارسی (جلوگیری از جدا شدن حروف در سیستم‌های بدون Raqm)
+persian_reshaper = arabic_reshaper.ArabicReshaper(
+    configuration={
+        'language': 'Farsi',
+        'delete_harakat': False,
+        'support_ligatures': True
+    }
+)
 
 class StoryProcessor:
     def __init__(self, template_text_path, template_image_path, font_path):
@@ -18,19 +31,19 @@ class StoryProcessor:
         os.makedirs(self.output_dir, exist_ok=True)
         self.story_size = (1080, 1920)
         
-        # --- هارمونی رنگ‌ها ---
         self.color_bg = (255, 255, 255, 255)      
         self.color_gold = (212, 168, 83, 255)     
         self.color_teal = (12, 100, 115, 255)     
         self.color_text = (50, 50, 50, 255)       
         
-        # --- تنظیمات قالب ۱: فقط متن (قالب آماده مرمرین) ---
         self.text_only_max_width = 760 
         self.marble_usable_start_y = 400 
         self.marble_usable_end_y = 1500  
         self.text_only_color = (30, 30, 30)
 
     def _prepare_persian_text(self, text, body_font, header_font, max_width):
+        # پاکسازی ستاره‌های مارک‌داون برای تمیزی خروجی
+        text = text.replace('*', '')
         lines = []
         paragraphs = text.replace('\r', '').split('\n')
         
@@ -53,7 +66,7 @@ class StoryProcessor:
                 if HAS_RAQM:
                     width = current_font.getlength(test_line, direction='rtl')
                 else:
-                    width = current_font.getlength(get_display(arabic_reshaper.reshape(test_line)))
+                    width = current_font.getlength(get_display(persian_reshaper.reshape(test_line)))
                         
                 if width > max_width:
                     if len(current_line) == 1:
@@ -90,12 +103,9 @@ class StoryProcessor:
             header_font_size = mid_font_size + 15
             
             try:
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size)
+                # حذف Layout_Basic برای بازگرداندن اتصال حروف
+                body_font = ImageFont.truetype(self.font_path, mid_font_size)
+                header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
@@ -132,12 +142,8 @@ class StoryProcessor:
             best_font_size = 20
             best_header_size = 35
             try:
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    best_body_font = ImageFont.truetype(self.font_path, 20, layout_engine=ImageFont.LAYOUT_BASIC)
-                    best_header_font = ImageFont.truetype(self.font_path, 35, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    best_body_font = ImageFont.truetype(self.font_path, 20)
-                    best_header_font = ImageFont.truetype(self.font_path, 35)
+                best_body_font = ImageFont.truetype(self.font_path, 20)
+                best_header_font = ImageFont.truetype(self.font_path, 35)
             except IOError:
                 pass
             best_line_spacing = int(20 * 0.5)
@@ -154,10 +160,8 @@ class StoryProcessor:
 
     def generate_story(self, mode, text, image_stream=None):
         if mode == 'text_only':
-            # --- پردازش حالت اول: فقط متن (بدون کادر داینامیک، روی قالب مرمرین) ---
             base_img = Image.open(self.template_text_path).convert("RGBA")
             base_img = base_img.resize(self.story_size)
-            draw = ImageDraw.Draw(base_img)
             
             current_max_width = self.text_only_max_width
             usable_height = self.marble_usable_end_y - self.marble_usable_start_y
@@ -166,11 +170,9 @@ class StoryProcessor:
                 text, start_font_size=55, max_width=current_max_width, max_height=usable_height
             )
             
-            # تراز عمودی متن روی قالب ثابت
             offset = max(0, (usable_height - text_height) // 2)
             current_y = self.marble_usable_start_y + offset
 
-            # استفاده از Pilmoji به جای draw.text برای رندر استیکرها
             with Pilmoji(base_img) as pilmoji:
                 for line in lines:
                     if line.get('is_empty'):
@@ -186,7 +188,7 @@ class StoryProcessor:
                         x_pos = self.story_size[0] - right_margin - line_width
                         pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
                     else:
-                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
+                        shaped_text = get_display(persian_reshaper.reshape(line['text']))
                         line_width = current_font.getlength(shaped_text)
                         right_margin = (self.story_size[0] - current_max_width) / 2
                         x_pos = self.story_size[0] - right_margin - line_width
@@ -197,7 +199,6 @@ class StoryProcessor:
                         current_y += para_spacing
 
         else:
-            # --- پردازش حالت دوم: متن و عکس (کادر هوشمند داینامیک) ---
             base_img = Image.new("RGBA", self.story_size, self.color_bg)
             draw = ImageDraw.Draw(base_img)
 
@@ -279,7 +280,6 @@ class StoryProcessor:
                 base_img.paste(user_img_resized, (img_x, int(current_y)), mask)
                 current_y += img_h + 50
             
-            # استفاده مجدد از Pilmoji برای حالت کادر داینامیک
             with Pilmoji(base_img) as pilmoji:
                 for line in lines:
                     if line.get('is_empty'):
@@ -296,7 +296,7 @@ class StoryProcessor:
                         x_pos = self.story_size[0] - right_margin - line_width
                         pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
                     else:
-                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
+                        shaped_text = get_display(persian_reshaper.reshape(line['text']))
                         line_width = current_font.getlength(shaped_text)
                         right_margin = (self.story_size[0] - content_max_width) / 2
                         x_pos = self.story_size[0] - right_margin - line_width
