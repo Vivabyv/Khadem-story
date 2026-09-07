@@ -3,14 +3,23 @@ import uuid
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import arabic_reshaper
 from bidi.algorithm import get_display
-from pilmoji import Pilmoji  # فقط این ماژول برای استیکر اضافه شد
+from pilmoji import Pilmoji 
 
-# تشخیص هوشمند موتور رندر لینوکس (دقیقاً کد خودتان)
+# موتور هوشمند لینوکس
 try:
     from PIL import features
     HAS_RAQM = features.check('raqm')
 except ImportError:
     HAS_RAQM = False
+
+# پیکربندی اختصاصی برای جلوگیری از جدا شدن حروف فارسی
+persian_reshaper = arabic_reshaper.ArabicReshaper(
+    configuration={
+        'language': 'Farsi',
+        'delete_harakat': False,
+        'support_ligatures': True
+    }
+)
 
 class StoryProcessor:
     def __init__(self, template_text_path, template_image_path, font_path):
@@ -22,22 +31,39 @@ class StoryProcessor:
         os.makedirs(self.output_dir, exist_ok=True)
         self.story_size = (1080, 1920)
         
-        # --- هارمونی رنگ‌ها ---
         self.color_bg = (255, 255, 255, 255)      
         self.color_gold = (212, 168, 83, 255)     
         self.color_teal = (12, 100, 115, 255)     
         self.color_text = (50, 50, 50, 255)       
         
-        # --- تنظیمات قالب ۱: فقط متن (قالب آماده مرمرین) ---
         self.text_only_max_width = 760 
         self.marble_usable_start_y = 400 
         self.marble_usable_end_y = 1500  
         self.text_only_color = (30, 30, 30)
+        
+        # لیست استیکرهای رایج برای مدیریت دقیق فضا
+        self.known_emojis = ['🔻', '🔹', '🔸', '✅', '❌', '🔴', '🟢', '👇', '🔥', '✨']
+
+    def _get_text_width(self, text, font):
+        """محاسبه دقیق عرض متن شامل استیکرها برای جلوگیری از به هم ریختگی کادر"""
+        if HAS_RAQM:
+            return font.getlength(text, direction='rtl')
+        else:
+            shaped = get_display(persian_reshaper.reshape(text))
+            w = font.getlength(shaped)
+            # جبران عرض استیکرها که توسط فونت صفر محاسبه می‌شود
+            for e in self.known_emojis:
+                w += text.count(e) * (font.size * 1.1)
+            return w
 
     def _prepare_persian_text(self, text, body_font, header_font, max_width):
-        # پاک کردن ستاره‌های مارک‌داون برای تمیزی استوری
+        # پاک کردن ستاره‌های مارک‌داون
         text = text.replace('*', '')
         
+        # ایجاد ۳ فاصله امن دور هر استیکر برای جلوگیری از روی هم افتادن با حروف فارسی
+        for e in self.known_emojis:
+            text = text.replace(e, f"   {e}   ")
+            
         lines = []
         paragraphs = text.replace('\r', '').split('\n')
         
@@ -57,10 +83,8 @@ class StoryProcessor:
                 current_line.append(word)
                 test_line = ' '.join(current_line)
                 
-                if HAS_RAQM:
-                    width = current_font.getlength(test_line, direction='rtl')
-                else:
-                    width = current_font.getlength(get_display(arabic_reshaper.reshape(test_line)))
+                # استفاده از تابع جدید برای محاسبه عرض دقیق
+                width = self._get_text_width(test_line, current_font)
                         
                 if width > max_width:
                     if len(current_line) == 1:
@@ -80,7 +104,6 @@ class StoryProcessor:
         return lines
 
     def _get_dynamic_font(self, text, start_font_size, max_width, max_height):
-        # منطق فونت دقیقاً کد خودتان است بدون هیچ تغییری
         low = 20
         high = start_font_size
         
@@ -98,12 +121,8 @@ class StoryProcessor:
             header_font_size = mid_font_size + 15
             
             try:
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    body_font = ImageFont.truetype(self.font_path, mid_font_size)
-                    header_font = ImageFont.truetype(self.font_path, header_font_size)
+                body_font = ImageFont.truetype(self.font_path, mid_font_size)
+                header_font = ImageFont.truetype(self.font_path, header_font_size)
             except IOError:
                 body_font = ImageFont.load_default()
                 header_font = ImageFont.load_default()
@@ -140,12 +159,8 @@ class StoryProcessor:
             best_font_size = 20
             best_header_size = 35
             try:
-                if hasattr(ImageFont, 'LAYOUT_BASIC'):
-                    best_body_font = ImageFont.truetype(self.font_path, 20, layout_engine=ImageFont.LAYOUT_BASIC)
-                    best_header_font = ImageFont.truetype(self.font_path, 35, layout_engine=ImageFont.LAYOUT_BASIC)
-                else:
-                    best_body_font = ImageFont.truetype(self.font_path, 20)
-                    best_header_font = ImageFont.truetype(self.font_path, 35)
+                best_body_font = ImageFont.truetype(self.font_path, 20)
+                best_header_font = ImageFont.truetype(self.font_path, 35)
             except IOError:
                 pass
             best_line_spacing = int(20 * 0.5)
@@ -164,7 +179,6 @@ class StoryProcessor:
         if mode == 'text_only':
             base_img = Image.open(self.template_text_path).convert("RGBA")
             base_img = base_img.resize(self.story_size)
-            draw = ImageDraw.Draw(base_img)
             
             current_max_width = self.text_only_max_width
             usable_height = self.marble_usable_end_y - self.marble_usable_start_y
@@ -176,7 +190,6 @@ class StoryProcessor:
             offset = max(0, (usable_height - text_height) // 2)
             current_y = self.marble_usable_start_y + offset
 
-            # استفاده از Pilmoji به جای draw.text برای رسم استیکر در کنار متن سالم
             with Pilmoji(base_img) as pilmoji:
                 for line in lines:
                     if line.get('is_empty'):
@@ -186,16 +199,15 @@ class StoryProcessor:
                     current_size = header_size if line['is_header'] else final_size
                     color = self.color_teal if line['is_header'] else self.text_only_color
                     
+                    # محاسبه عرض دقیق برای راست‌چین کردن
+                    line_width = self._get_text_width(line['text'], current_font)
+                    right_margin = (self.story_size[0] - current_max_width) / 2
+                    x_pos = self.story_size[0] - right_margin - line_width
+                    
                     if HAS_RAQM:
-                        line_width = current_font.getlength(line['text'], direction='rtl')
-                        right_margin = (self.story_size[0] - current_max_width) / 2
-                        x_pos = self.story_size[0] - right_margin - line_width
                         pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
                     else:
-                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
-                        line_width = current_font.getlength(shaped_text)
-                        right_margin = (self.story_size[0] - current_max_width) / 2
-                        x_pos = self.story_size[0] - right_margin - line_width
+                        shaped_text = get_display(persian_reshaper.reshape(line['text']))
                         pilmoji.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
                     
                     current_y += current_size + line_spacing
@@ -284,7 +296,6 @@ class StoryProcessor:
                 base_img.paste(user_img_resized, (img_x, int(current_y)), mask)
                 current_y += img_h + 50
             
-            # استفاده از Pilmoji به جای draw.text در حالت دوم
             with Pilmoji(base_img) as pilmoji:
                 for line in lines:
                     if line.get('is_empty'):
@@ -295,16 +306,15 @@ class StoryProcessor:
                     current_size = header_size if line['is_header'] else final_size
                     color = self.color_teal if line['is_header'] else self.color_text
                     
+                    # محاسبه عرض دقیق برای راست‌چین کردن
+                    line_width = self._get_text_width(line['text'], current_font)
+                    right_margin = (self.story_size[0] - content_max_width) / 2
+                    x_pos = self.story_size[0] - right_margin - line_width
+                    
                     if HAS_RAQM:
-                        line_width = current_font.getlength(line['text'], direction='rtl')
-                        right_margin = (self.story_size[0] - content_max_width) / 2
-                        x_pos = self.story_size[0] - right_margin - line_width
                         pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
                     else:
-                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
-                        line_width = current_font.getlength(shaped_text)
-                        right_margin = (self.story_size[0] - content_max_width) / 2
-                        x_pos = self.story_size[0] - right_margin - line_width
+                        shaped_text = get_display(persian_reshaper.reshape(line['text']))
                         pilmoji.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
                     
                     current_y += current_size + line_spacing
