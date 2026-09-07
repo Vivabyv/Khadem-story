@@ -3,13 +3,10 @@ import uuid
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import arabic_reshaper
 from bidi.algorithm import get_display
+from pilmoji import Pilmoji 
 
-# تشخیص هوشمند موتور رندر لینوکس
-try:
-    from PIL import features
-    HAS_RAQM = features.check('raqm')
-except ImportError:
-    HAS_RAQM = False
+# غیرفعال‌سازی اجباری موتور لینوکس برای جلوگیری از تداخل مختصات با ایموجی‌ها
+HAS_RAQM = False
 
 class StoryProcessor:
     def __init__(self, template_text_path, template_image_path, font_path):
@@ -173,51 +170,50 @@ class StoryProcessor:
             offset = max(0, (usable_height - text_height) // 2)
             current_y = self.marble_usable_start_y + offset
 
-            for line in lines:
-                if line.get('is_empty'):
-                    current_y += final_size + line_spacing
-                    continue
-                current_font = header_font if line['is_header'] else body_font
-                current_size = header_size if line['is_header'] else final_size
-                color = self.color_teal if line['is_header'] else self.text_only_color
-                
-                if HAS_RAQM:
-                    line_width = current_font.getlength(line['text'], direction='rtl')
-                    right_margin = (self.story_size[0] - current_max_width) / 2
-                    x_pos = self.story_size[0] - right_margin - line_width
-                    draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
-                else:
-                    shaped_text = get_display(arabic_reshaper.reshape(line['text']))
-                    line_width = current_font.getlength(shaped_text)
-                    right_margin = (self.story_size[0] - current_max_width) / 2
-                    x_pos = self.story_size[0] - right_margin - line_width
-                    draw.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
-                
-                current_y += current_size + line_spacing
-                if line.get('is_paragraph_end'):
-                    current_y += para_spacing
+            # استفاده از Pilmoji به جای draw.text برای رندر استیکرها
+            with Pilmoji(base_img) as pilmoji:
+                for line in lines:
+                    if line.get('is_empty'):
+                        current_y += final_size + line_spacing
+                        continue
+                    current_font = header_font if line['is_header'] else body_font
+                    current_size = header_size if line['is_header'] else final_size
+                    color = self.color_teal if line['is_header'] else self.text_only_color
+                    
+                    if HAS_RAQM:
+                        line_width = current_font.getlength(line['text'], direction='rtl')
+                        right_margin = (self.story_size[0] - current_max_width) / 2
+                        x_pos = self.story_size[0] - right_margin - line_width
+                        pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
+                    else:
+                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
+                        line_width = current_font.getlength(shaped_text)
+                        right_margin = (self.story_size[0] - current_max_width) / 2
+                        x_pos = self.story_size[0] - right_margin - line_width
+                        pilmoji.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
+                    
+                    current_y += current_size + line_spacing
+                    if line.get('is_paragraph_end'):
+                        current_y += para_spacing
 
         else:
             # --- پردازش حالت دوم: متن و عکس (کادر هوشمند داینامیک) ---
-            # 1. ساخت بوم کاملا سفید
             base_img = Image.new("RGBA", self.story_size, self.color_bg)
             draw = ImageDraw.Draw(base_img)
 
-            # 2. قرار دادن لوگو (از روی فایل template_image.jpg که الان لوگو است)
             logo_path = self.template_image_path
             available_start_y = 350
             
             if os.path.exists(logo_path):
                 logo_img = Image.open(logo_path).convert("RGBA")
-                target_width = 260 # سایز لوگو مینیمال و شیک
+                target_width = 260 
                 w_percent = (target_width / float(logo_img.size[0]))
                 target_height = int((float(logo_img.size[1]) * float(w_percent)))
                 
                 logo_resized = logo_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
                 logo_x = (self.story_size[0] - target_width) // 2
-                logo_y = 80 # چسباندن لوگو به بالای صفحه
+                logo_y = 80 
                 
-                # قرار دادن لوگو روی بوم
                 try:
                     base_img.paste(logo_resized, (logo_x, logo_y), logo_resized)
                 except ValueError:
@@ -225,7 +221,6 @@ class StoryProcessor:
                 
                 available_start_y = logo_y + target_height + 60 
                 
-            # 3. محاسبات کادر داینامیک
             margin_x = 80  
             box_width = self.story_size[0] - (margin_x * 2) 
             inner_padding = 60 
@@ -238,7 +233,6 @@ class StoryProcessor:
             img_h = 0
             user_img_resized = None
             
-            # 4. پردازش عکس کاربر
             if image_stream:
                 user_img = Image.open(image_stream).convert("RGB")
                 img_w = content_max_width 
@@ -260,7 +254,6 @@ class StoryProcessor:
             content_height += text_height
             total_box_height = content_height + (inner_padding * 2)
             
-            # 5. تراز عمودی هوشمند کادر طلایی
             offset = max(0, (available_height - total_box_height) // 2)
             box_start_y = available_start_y + int(offset * 0.6)
             
@@ -269,7 +262,6 @@ class StoryProcessor:
                 
             box_end_y = box_start_y + total_box_height
             
-            # رسم کادر طلایی
             draw.rounded_rectangle(
                 [(margin_x, box_start_y), (self.story_size[0] - margin_x, box_end_y)],
                 radius=40,
@@ -287,32 +279,33 @@ class StoryProcessor:
                 base_img.paste(user_img_resized, (img_x, int(current_y)), mask)
                 current_y += img_h + 50
             
-            for line in lines:
-                if line.get('is_empty'):
-                    current_y += final_size + line_spacing
-                    continue
+            # استفاده مجدد از Pilmoji برای حالت کادر داینامیک
+            with Pilmoji(base_img) as pilmoji:
+                for line in lines:
+                    if line.get('is_empty'):
+                        current_y += final_size + line_spacing
+                        continue
+                        
+                    current_font = header_font if line['is_header'] else body_font
+                    current_size = header_size if line['is_header'] else final_size
+                    color = self.color_teal if line['is_header'] else self.color_text
                     
-                current_font = header_font if line['is_header'] else body_font
-                current_size = header_size if line['is_header'] else final_size
-                color = self.color_teal if line['is_header'] else self.color_text
-                
-                if HAS_RAQM:
-                    line_width = current_font.getlength(line['text'], direction='rtl')
-                    right_margin = (self.story_size[0] - content_max_width) / 2
-                    x_pos = self.story_size[0] - right_margin - line_width
-                    draw.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
-                else:
-                    shaped_text = get_display(arabic_reshaper.reshape(line['text']))
-                    line_width = current_font.getlength(shaped_text)
-                    right_margin = (self.story_size[0] - content_max_width) / 2
-                    x_pos = self.story_size[0] - right_margin - line_width
-                    draw.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
-                
-                current_y += current_size + line_spacing
-                if line.get('is_paragraph_end'):
-                    current_y += para_spacing
+                    if HAS_RAQM:
+                        line_width = current_font.getlength(line['text'], direction='rtl')
+                        right_margin = (self.story_size[0] - content_max_width) / 2
+                        x_pos = self.story_size[0] - right_margin - line_width
+                        pilmoji.text((x_pos, current_y), line['text'], font=current_font, fill=color, direction='rtl')
+                    else:
+                        shaped_text = get_display(arabic_reshaper.reshape(line['text']))
+                        line_width = current_font.getlength(shaped_text)
+                        right_margin = (self.story_size[0] - content_max_width) / 2
+                        x_pos = self.story_size[0] - right_margin - line_width
+                        pilmoji.text((x_pos, current_y), shaped_text, font=current_font, fill=color)
+                    
+                    current_y += current_size + line_spacing
+                    if line.get('is_paragraph_end'):
+                        current_y += para_spacing
 
-        # ذخیره خروجی نهایی
         final_img = base_img.convert("RGB")
         filename = f"story_{uuid.uuid4().hex[:8]}.jpg"
         filepath = os.path.join(self.output_dir, filename)
